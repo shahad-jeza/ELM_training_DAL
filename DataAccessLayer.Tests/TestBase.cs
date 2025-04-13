@@ -1,45 +1,55 @@
-using Moq;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using DataAccessLayer;
-using DataAccessLayer.Models;
-using System.Collections.Generic;
-using System.Linq;
+using System.Data.Common;
 
 namespace DataAccessLayer.Tests
 {
-    public abstract class TestBase
+    public abstract class TestBase : IDisposable
     {
-        protected Mock<AppDbContext> CreateMockDbContext<T>(List<T> data) where T : class
+        private readonly DbConnection _connection;
+        protected readonly AppDbContext _context;
+
+        protected TestBase()
         {
-            var mockSet = new Mock<DbSet<T>>();
-            mockSet.As<IQueryable<T>>().Setup(m => m.Provider).Returns(data.AsQueryable().Provider);
-            mockSet.As<IQueryable<T>>().Setup(m => m.Expression).Returns(data.AsQueryable().Expression);
-            mockSet.As<IQueryable<T>>().Setup(m => m.ElementType).Returns(data.AsQueryable().ElementType);
-            mockSet.As<IQueryable<T>>().Setup(m => m.GetEnumerator()).Returns(data.AsQueryable().GetEnumerator());
+            // Create and open a SQLite connection
+            _connection = new SqliteConnection("Filename=:memory:");
+            _connection.Open();
 
-            var mockContext = new Mock<AppDbContext>();
-            mockContext.Setup(c => c.Set<T>()).Returns(mockSet.Object);
+            // Configure the context to use SQLite
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlite(_connection)
+                .Options;
 
-            return mockContext;
+            _context = new AppDbContext(options);
+            
+            // Ensure the database is created
+            _context.Database.EnsureCreated();
         }
 
-        protected List<User> GetTestUsers()
+        public void Dispose()
         {
-            return new List<User>
-            {
+            _context.Database.EnsureDeleted();
+            _connection.Dispose();
+            GC.SuppressFinalize(this);
+        }
+
+        protected void SeedDatabase()
+        {
+            // Add test users
+            _context.Users.AddRange(
                 new User { Id = 1, FirstName = "John", LastName = "Doe", Email = "john@example.com" },
                 new User { Id = 2, FirstName = "Jane", LastName = "Smith", Email = "jane@example.com" }
-            };
-        }
+            );
 
-        protected List<Order> GetTestOrders()
-        {
-            return new List<Order>
-            {
+            // Add test orders
+            _context.Orders.AddRange(
                 new Order { OrderId = 1, UserId = 1, Product = "Laptop", Quantity = 1, Price = 999.99m },
                 new Order { OrderId = 2, UserId = 1, Product = "Mouse", Quantity = 2, Price = 25.50m },
                 new Order { OrderId = 3, UserId = 2, Product = "Keyboard", Quantity = 1, Price = 75.00m }
-            };
+            );
+
+            _context.SaveChanges();
         }
     }
 }
